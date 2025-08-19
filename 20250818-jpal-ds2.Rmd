@@ -1,0 +1,162 @@
+---
+title: "20250818-jpal-ds2"
+author: "Siphiwe Bogatsu"
+Purpose: "Map service requests to H3 res-8 polygons, report join quality."
+date: "2025-08-19"
+output: html_document
+---
+
+
+
+# ------------------- Packages ------------------------------------------------
+```{r}
+if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")
+pacman::p_load(
+  tidyverse, readr, skimr, sf, janitor,
+  here, glue, logger, checkmate, renv
+)
+```
+
+# ------------------------- Global options -----------------------------------
+# Pin timezone & printing for consistent behavior across machines
+
+```{r}
+Sys.setenv(TZ = "Africa/Johannesburg")
+options(
+  readr.show_col_types = FALSE,
+  scipen = 999
+)
+```
+
+## ------------------ Configurations -------------------------------------------
+
+```{r}
+# The service request join should fail if % of them without a valid hex exceeds 5% 
+error_threshold  = as.numeric(Sys.getenv("JOIN_FAIL_THRESHOLD", unset = "23"))
+
+# Cape Town is a small area, thus for faster planar join swtich off S2 geometry engine
+old_s2  = sf_use_s2(FALSE)
+
+
+time_0 = Sys.time()
+message("Starting the service request -- H3 (res level = 8) hexagon join pipeline @", 
+        format(time_0, "%Y-%m-%d %H:%M:%S"))
+```
+##-----------------------Load the data -----------------------------------------
+```{r}
+# service requests 
+sr  = read_csv("sr.csv.gz") |>
+             select(- ...1)
+
+# H3 spatial polygons 
+hex = st_read("city-hex-polygons-8.geojson") |>
+          clean_names() |>
+          mutate(index = as.character(index)) |>
+          select(index, geometry)
+
+stopifnot(all(c("longitude", "latitude") %in% names(sr)))
+
+```
+## ---------------- Create points only for valid coordinates ------------------------
+```{r}
+# Define "has_coords" strictly (exclude zeros and out-of-range)
+in_lon_range =  !is.na(sr$longitude) & sr$longitude >= 16 & sr$longitude <= 20
+in_lat_range = !is.na(sr$latitude)  & sr$latitude  >= -35 & sr$latitude  <= -33
+has_coords   = in_lon_range & in_lat_range
+
+
+
+n_total    = nrow(sr)                 # N of service requests 
+n_missing  = sum(!has_coords)         # N of service requests with missing coordinates 
+
+if(n_missing > 0)
+{
+  message("Service requests with missing coordinates: ", n_missing)
+}
+
+# Filter and create spatial points for valid coordinates 
+sr_present = sr |> filter(has_coords)
+sr_points  = sr_present |> 
+                  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+
+```
+## --------------------- Spatial Join -----------------------------------------
+
+```{r}
+time_join0     = Sys.time()
+sr_hex         = sr_points |>    
+                  st_join(hex["index"], left = TRUE)  # for points inside the polygon geom
+time_join1     = Sys.time()
+
+
+joined_index   = sr_hex$index |> 
+                    coalesce("0")         #  make sure every sr has an index; if the join failed, give it "0" 
+
+outside_hex    =  has_coords[sr_hex$index == "0"]  # return the values of has_coords for rows where index == "0"
+n_out          =  length(outside_hex)
+n_failed       =  n_missing + n_out
+
+
+pct            =  function(x) round(100 * x / max(1, n_total), 2)
+
+```
+## ---------------------- Rebuild the output ----------------------------------
+```{r}
+sr_out                    = sr |> 
+                                mutate(index = NA_character_)
+sr_out$index[!has_coords] = "0"
+sr_out$index[has_coords]  = joined_index 
+
+```
+## ------------------------Timing ---------------------------------------------
+
+```{r}
+time_1 = Sys.time()
+message("\nJoin time:                    ", round(as.numeric(difftime(time_join1, time_join0, units = "secs")), 2), " s")
+message("Total pipeline time:            ", round(as.numeric(difftime(time_1, time_0, units = "secs")), 2), " s")
+message("=======================================================================")
+
+```
+
+## ---------------------- Logging & Thresholds --------------------------------
+
+
+```{r}
+message("\n======= Service Requests → H3 (res 8) PolygonS Spatial Join Report ==========")
+message(sprintf("Total records:                         %d",   n_total))
+message(sprintf("Missing coordinates:                   %d (%.2f%%)", n_missing, pct(n_missing)))
+message(sprintf("Outside hex coverage:                  %d (%.2f%%)", n_out,     pct(n_out)))
+message(sprintf("Overall failures:                      %d (%.2f%%)", n_failed,  pct(n_failed)))
+message(sprintf("Error threshold:                       %.2f%%",     error_threshold))
+
+if (pct(n_failed)> error_threshold) {
+  sf_use_s2(old_s2)
+  stop(sprintf("Join failure rate %.2f%% exceeded threshold %.2f%%.",
+               pct(n_failed), error_threshold))
+} else {
+  message("Join quality check PASSED ✅")
+}
+
+```
+
+## ----------------------------------------------------------------------------
+```{r}
+
+# restore s2 setting
+sf_use_s2(old_s2)
+renv::snapshot()
+
+```
+
+
+##---------------------Comments on error threshold-----------------------------
+I set a join-error threshold of 23\% to reflect the realities of municipal service requests 
+data over a 12 month period. Service requests can originate anywhere within the city's 
+boundaries, often in locations where precise coordinates are difficult to capture. Current systems 
+do not always allow accurate entry, so data capturers sometimes omit coordinates while 
+completing other fields. As a result, a substantial share of requests lack valid spatial information. 
+
+This threshold establishes a clear quality rule: when the join failure rate is 23\% or lower, 
+the data remain suitable for spatial analysis; when it exceeds 23\%, the data quality is poor to support 
+reliable results without further cleaning or imputation. The value is specific to this data set and context. It balances the need to use a large, information-rich data set with the need to guard against excessive imcompleteness. 
