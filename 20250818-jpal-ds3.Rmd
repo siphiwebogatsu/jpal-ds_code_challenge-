@@ -30,15 +30,9 @@ options(
 )
 ```
 # ------------------------- Logging ------------------------------------------
-# Create a dated log file in data/derived/logs/
+
 ```{r}
-log_dir = here::here("data", "derived", "logs")
 
-if (!dir.exists(log_dir)) dir.create(log_dir, recursive = TRUE)
-
-log_file = file.path(log_dir, paste0("build_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".log"))
-log_appender(appender_tee(log_file))
-log_threshold(INFO)
 log_info("Build started at {format(Sys.time(), '%Y-%m-%d %H:%M:%S %Z')}")
 ```
 
@@ -55,7 +49,7 @@ CRS_WGS84   = 4326L
 CRS_PROJECT = 32734L
 
 BELLVILLE_SOUTH_NAME = "Bellville South"
-BUFFER_RADIUS_M      = 1852  # ~1 arc-minute at mid-latitudes; you stated 1,852 m
+BUFFER_RADIUS_M      = 1852  # ~1 arc-minute at mid-latitudes; 
 
 ```
 
