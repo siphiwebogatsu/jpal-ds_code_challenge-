@@ -229,15 +229,11 @@ tryCatch(
   }
 )
 ```
-
-
-
 #-------------------------- Comments on Anonymisation ---------------------------------
-
-
 I anonymise locations by keeping only the $H3$ index at resolution $8$. $H3$’s official tables report an average edge length \approx $531$ m and area \approx $0.737$ $km^2$  for res-8 cells. Therefore, the precise position of any request is coarsened to a hex region with radius \approx $531$ m (apothem \approx $460$ m), ensuring spatial precision no finer than ~500 m while preserving neighbourhood-scale signal.Lastly, I anonymise the exact timestamps (down to the second) by binning the requests into 6-hour windows. 
 
 With spatial anonymisation, an observer can no longer tell which specific residence the request came from; at best, they know the request was somewhere within a hex ~$500-600$ m across. That is enough for neighbourhood-scale analysis but removes the risk of singling out individuals or their homes. On the hand removing the exact timestamps (down to the second) prevents identifying individuals based on exact activity patterns (e.g., "who reported at 02h37 AM on Tuesday). The coarser window still allows analysis of daily/diurnal patterns (morning vs evening trends), but makes it infeasible to match service requests to a resident's personal routine. I also, with caution, remove the reference number and the notification number, as I do not enough information on which from the two is sensitive. 
+
 
 
 
